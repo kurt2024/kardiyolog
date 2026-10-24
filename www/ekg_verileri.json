@@ -1,0 +1,14 @@
+{
+  "uygulama_ayarlari": {
+    "versiyon": "1.0",
+    "tema": "karanlik",
+    "kalibrasyon": "25mm/s, 10mm/mV"
+  },
+  "ritimler": [
+    {
+      "id": "normal_sinus",
+      "isim": "Normal Sinüs Ritmi",
+      "varsayilan_bpm": 75
+    }
+  ]
+}
