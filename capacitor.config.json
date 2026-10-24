@@ -1,0 +1,6 @@
+{
+  "appId": "com.fikretkurt.medekg",
+  "appName": "Klinik EKG",
+  "webDir": "www",
+  "bundledWebRuntime": false
+}
