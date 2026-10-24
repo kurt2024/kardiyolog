@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gelişmiş AI EKG Simülatörü & Analizörü</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Slate 900 */
+            color: #e2e8f0; /* Slate 200 */
+            overscroll-behavior-y: none;
+        }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* Custom Slider Styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #ef4444; /* Red 500 */
+            cursor: pointer;
+            margin-top: -7px;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+        
+        /* Canvas Styling - Realistic ECG Paper on Dark Mode */
+        #ecgCanvas {
+            background-color: #1a0505; /* Very dark red/pink base */
+            filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.2));
+        }
+
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Loader Animation for AI */
+        .loader {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-left-color: #10b981;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col p-4 md:p-6 lg:max-w-6xl mx-auto w-full gap-6">
+
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+            <h1 class="text-2xl md:text-3xl font-bold text-white tracking-wide flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+                AI Kardiyolog <span class="text-slate-400 font-light text-xl">12-Lead EKG Simülatörü</span>
+            </h1>
+            <p class="text-xs md:text-sm text-red-400 mt-1 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                </svg>
+                Eğitim amaçlıdır. Tıbbi teşhis yerine geçmez.
+            </p>
+        </div>
+        <div class="glass-panel px-6 py-3 rounded-2xl text-right shadow-inner flex items-center gap-4">
+            <div class="text-right">
+                <div class="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Anlık Nabız</div>
+                <div class="text-3xl md:text-4xl font-bold text-emerald-400 flex items-baseline gap-1" style="text-shadow: 0 0 10px rgba(16,185,129,0.3);">
+                    <span id="bpmDisplay">75</span>
+                    <span class="text-sm font-normal text-emerald-600 animate-pulse">BPM</span>
+                </div>
+            </div>
+            <button id="toggleBtn" class="bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/50 p-3 rounded-full transition-all">
+                <!-- Pause Icon -->
+                <svg id="pauseIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 block" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <!-- Play Icon -->
+                <svg id="playIcon" xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left Column: Simulator Canvas & Controls -->
+        <div class="lg:col-span-2 flex flex-col gap-6">
+            
+            <!-- Canvas Container -->
+            <main class="relative w-full rounded-2xl overflow-hidden border border-slate-700 shadow-2xl" style="height: 40vh; min-height: 300px;">
+                <canvas id="ecgCanvas" class="absolute top-0 left-0 w-full h-full block"></canvas>
+                <div class="absolute top-4 left-4 flex gap-2">
+                    <span id="leadDisplay" class="bg-red-500/20 text-red-400 font-bold text-xs px-2 py-1 rounded border border-red-500/30">LEAD II</span>
+                    <span class="bg-slate-800/80 text-slate-300 text-[10px] px-2 py-1 rounded border border-slate-700">25mm/s</span>
+                    <span class="bg-slate-800/80 text-slate-300 text-[10px] px-2 py-1 rounded border border-slate-700">10mm/mV</span>
+                </div>
+            </main>
+
+            <!-- Simulator Controls -->
+            <div class="glass-panel p-5 rounded-2xl">
+                <h2 class="text-sm text-slate-400 font-semibold mb-4 uppercase tracking-wider">Simülasyon Parametreleri</h2>
+                
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <!-- Lead Selection -->
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs text-slate-300">Derivasyon (Lead)</label>
+                        <select id="leadSelect" class="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2 outline-none">
+                            <option value="I">I</option>
+                            <option value="II" selected>II</option>
+                            <option value="III">III</option>
+                            <option value="aVR">aVR</option>
+                            <option value="aVL">aVL</option>
+                            <option value="aVF">aVF</option>
+                            <option value="V1">V1</option>
+                            <option value="V2">V2</option>
+                            <option value="V3">V3</option>
+                            <option value="V4">V4</option>
+                            <option value="V5">V5</option>
+                            <option value="V6">V6</option>
+                        </select>
+                    </div>
+
+                    <!-- Rhythm Selection -->
+                    <div class="flex flex-col gap-1">
+                        <label class="text-xs text-slate-300">Ritim</label>
+                        <select id="rhythmSelect" class="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2 outline-none">
+                            <option value="NSR" selected>Normal Sinüs (NSR)</option>
+                            <option value="AFIB">Atriyal Fibrilasyon (AFib)</option>
+                            <option value="AFLUTTER">Atriyal Flutter</option>
+                            <option value="VTACH">Ventriküler Taşikardi (VT)</option>
+                            <option value="VFIB">Ventriküler Fibrilasyon (VF)</option>
+                            <option value="SVT">Supraventriküler Taş. (SVT)</option>
+                            <option value="AVBLOCK1">1. Derece AV Blok</option>
+                        </select>
+                    </div>
+
+                    <!-- Pathology Selection -->
+                    <div class="flex flex-col gap-1 md:col-span-2">
+                        <label class="text-xs text-slate-300">Patoloji (ST/QRS Değişiklikleri)</label>
+                        <select id="pathologySelect" class="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2 outline-none">
+                            <option value="NONE" selected>Normal (Patoloji Yok)</option>
+                            <option value="ANT_STEMI">Anterior STEMI (V1-V4 ST Elevasyonu)</option>
+                            <option value="INF_STEMI">İnferior STEMI (II, III, aVF ST Elevasyonu)</option>
+                            <option value="LBBB">Sol Dal Bloğu (LBBB)</option>
+                            <option value="RBBB">Sağ Dal Bloğu (RBBB)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Sliders -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center text-sm">
+                            <label class="text-slate-300 font-medium">Kalp Hızı <span class="text-xs text-slate-500">(BPM)</span></label>
+                            <span id="bpmVal" class="text-white font-bold bg-slate-800 px-2 py-0.5 rounded">75</span>
+                        </div>
+                        <input type="range" id="bpmSlider" min="30" max="250" value="75">
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex justify-between items-center text-sm">
+                            <label class="text-slate-300 font-medium">Artefakt/Parazit</label>
+                            <span id="noiseVal" class="text-white font-bold bg-slate-800 px-2 py-0.5 rounded">10%</span>
+                        </div>
+                        <input type="range" id="noiseSlider" min="0" max="100" value="10">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: AI Analyzer -->
+        <div class="glass-panel p-5 rounded-2xl flex flex-col h-full border border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
+            <h2 class="text-lg text-emerald-400 font-bold mb-2 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Gemini AI Analizi
+            </h2>
+            <p class="text-xs text-slate-400 mb-6 border-b border-slate-700 pb-4">
+                Gerçek bir EKG fotoğrafı yükleyin veya mevcut simülasyon ayarlarını değerlendirmesi için yapay zeka kardiyologa gönderin.
+            </p>
+
+            <div class="flex flex-col gap-4 flex-grow">
+                <!-- File Upload -->
+                <div class="flex items-center justify-center w-full">
+                    <label for="imageUpload" class="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-600 border-dashed rounded-lg cursor-pointer bg-slate-800/50 hover:bg-slate-700/50 transition-colors">
+                        <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                            <svg class="w-8 h-8 mb-3 text-slate-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 16">
+                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 13h3a3 3 0 0 0 0-6h-.025A5.56 5.56 0 0 0 16 6.5 5.5 5.5 0 0 0 5.207 5.021C5.137 5.017 5.071 5 5 5a4 4 0 0 0 0 8h2.167M10 15V6m0 0L8 8m2-2 2 2"/>
+                            </svg>
+                            <p class="mb-2 text-sm text-slate-400"><span class="font-semibold text-emerald-500">Tıkla ve Fotoğraf Yükle</span></p>
+                            <p class="text-xs text-slate-500" id="fileNameDisplay">PNG, JPG desteklenir.</p>
+                        </div>
+                        <input id="imageUpload" type="file" class="hidden" accept="image/*" />
+                    </label>
+                </div>
+
+                <!-- Analyze Button -->
+                <button id="analyzeBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl shadow-lg transition-all flex justify-center items-center gap-2">
+                    <span>Analiz Et</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+
+                <!-- Results Area -->
+                <div class="relative flex-grow flex flex-col">
+                    <div id="loadingOverlay" class="absolute inset-0 bg-slate-900/80 backdrop-blur-sm rounded-xl hidden flex-col items-center justify-center z-10">
+                        <div class="loader mb-3"></div>
+                        <p class="text-sm text-emerald-400 animate-pulse">Kardiyolog raporu hazırlanıyor...</p>
+                    </div>
+                    <div id="aiResult" class="flex-grow bg-slate-900 border border-slate-700 rounded-xl p-4 overflow-y-auto text-sm text-slate-300 leading-relaxed whitespace-pre-wrap" style="max-height: 300px;">
+                        Sonuçlar burada görüntülenecektir...
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modals/Alerts Container -->
+    <div id="alertBox" class="fixed bottom-5 right-5 bg-slate-800 border-l-4 border-red-500 text-slate-200 p-4 rounded shadow-2xl hidden z-50 max-w-sm transition-opacity duration-300">
+        <p id="alertMessage" class="text-sm"></p>
+    </div>
+
+    <script>
+        // --- UI & State Variables ---
+        const canvas = document.getElementById('ecgCanvas');
+        const ctx = canvas.getContext('2d');
+        const alertBox = document.getElementById('alertBox');
+        const alertMessage = document.getElementById('alertMessage');
+        
+        let isRunning = true;
+        let animationId;
+        let time = 0;
+        let points = [];
+        const gap = 15; // Sweep gap
+
+        // Configurations
+        let config = {
+            bpm: 75,
+            noise: 0.1,
+            speed: 2,
+            lead: 'II',
+            rhythm: 'NSR',
+            pathology: 'NONE'
+        };
+
+        // --- DOM Elements ---
+        const bpmSlider = document.getElementById('bpmSlider');
+        const noiseSlider = document.getElementById('noiseSlider');
+        const leadSelect = document.getElementById('leadSelect');
+        const rhythmSelect = document.getElementById('rhythmSelect');
+        const pathologySelect = document.getElementById('pathologySelect');
+        const bpmVal = document.getElementById('bpmVal');
+        const bpmDisplay = document.getElementById('bpmDisplay');
+        const noiseVal = document.getElementById('noiseVal');
+        const leadDisplay = document.getElementById('leadDisplay');
+        
+        // --- ECG Mathematical Modeling ---
+        
+        // Base Gaussian parameters for a normal PQRST complex (Amplitude, Center, Width)
+        const baseWaves = {
+            P: { a: 0.15, m: 0.20, s: 0.02 },
+            Q: { a: -0.15, m: 0.30, s: 0.01 },
+            R: { a: 1.50, m: 0.33, s: 0.015 },
+            S: { a: -0.40, m: 0.36, s: 0.015 },
+            T: { a: 0.35, m: 0.55, s: 0.04 }
+        };
+
+        // Modifies amplitude based on Lead (Approximations for simulation)
+        const leadModifiers = {
+            'I':   { P: 0.8, Q: 0.5, R: 0.8, S: 1.0, T: 0.8 },
+            'II':  { P: 1.0, Q: 1.0, R: 1.0, S: 1.0, T: 1.0 }, // Standard baseline
+            'III': { P: 0.6, Q: 1.5, R: 0.7, S: 1.2, T: 0.5 },
+            'aVR': { P: -1.0, Q: -1.0, R: -1.0, S: -1.0, T: -1.0 }, // Inverted
+            'aVL': { P: 0.4, Q: 0.8, R: 0.6, S: 0.8, T: 0.3 },
+            'aVF': { P: 0.8, Q: 1.2, R: 0.9, S: 1.1, T: 0.8 },
+            'V1':  { P: 0.5, Q: 0.1, R: 0.2, S: 2.5, T: -0.4 }, // Deep S
+            'V2':  { P: 0.6, Q: 0.1, R: 0.4, S: 2.0, T: 0.8 },
+            'V3':  { P: 0.8, Q: 0.2, R: 1.0, S: 1.0, T: 1.2 },
+            'V4':  { P: 1.0, Q: 0.5, R: 1.5, S: 0.5, T: 1.0 },
+            'V5':  { P: 1.0, Q: 0.8, R: 1.2, S: 0.2, T: 0.8 },
+            'V6':  { P: 0.9, Q: 1.0, R: 1.0, S: 0.1, T: 0.7 }
+        };
+
+        let lastRpeakTime = 0; // For varying rhythms like AFib
+
+        function getEcgValue(normalizedTime) {
+            let y = 0;
+            let currentWaves = JSON.parse(JSON.stringify(baseWaves)); // Deep copy
+            let leadMod = leadModifiers[config.lead];
+
+            // 1. Apply Rhythm Modifications
+            let stElevation = 0;
+            let tWaveInversion = 1;
+
+            if (config.rhythm === 'AFIB') {
+                currentWaves.P.a = 0; // No P waves
+                y += Math.sin(normalizedTime * Math.PI * 40) * 0.05; // Fibrillatory waves
+            } else if (config.rhythm === 'AFLUTTER') {
+                currentWaves.P.a = 0;
+                // Sawtooth pattern
+                y += Math.abs(Math.sin(normalizedTime * Math.PI * 8)) * 0.2; 
+            } else if (config.rhythm === 'VTACH') {
+                // Wide, bizarre QRS, no P/T
+                currentWaves.P.a = 0; currentWaves.T.a = 0;
+                currentWaves.Q.a = 0; currentWaves.S.a = 0;
+                currentWaves.R.s = 0.08; // Very wide R
+                currentWaves.R.a = 2.0 * Math.sin(normalizedTime * Math.PI * 2);
+            } else if (config.rhythm === 'VFIB') {
+                // Chaotic
+                return Math.sin(normalizedTime * 50) * Math.cos(normalizedTime * 30) * 0.5 + (Math.random() - 0.5) * 0.5;
+            } else if (config.rhythm === 'SVT') {
+                // P often buried, high rate (handled by BPM slider mostly), narrow QRS
+                currentWaves.P.a = 0.05; 
+                currentWaves.R.s = 0.01;
+            } else if (config.rhythm === 'AVBLOCK1') {
+                // Prolonged PR (move P wave earlier)
+                currentWaves.P.m = 0.10; 
+            }
+
+            // 2. Apply Pathology Modifications
+            if (config.pathology === 'ANT_STEMI') {
+                // ST elevation in V1-V4
+                if (['V1','V2','V3','V4'].includes(config.lead)) {
+                    stElevation = 0.8;
+                    currentWaves.T.a = 1.2; // Hyperacute T
+                } else if (['II','III','aVF'].includes(config.lead)) {
+                    stElevation = -0.3; // Reciprocal depression
+                }
+            } else if (config.pathology === 'INF_STEMI') {
+                // ST elevation in II, III, aVF
+                if (['II','III','aVF'].includes(config.lead)) {
+                    stElevation = 0.8;
+                } else if (['I','aVL','V1','V2'].includes(config.lead)) {
+                    stElevation = -0.4;
+                }
+            } else if (config.pathology === 'LBBB') {
+                // Wide QRS, notched R in V5/V6, deep S in V1
+                currentWaves.R.s = 0.04; 
+                currentWaves.S.s = 0.04;
+                if (['V5','V6','I','aVL'].includes(config.lead)) {
+                    // M shape approximation
+                    currentWaves.R.m = 0.32;
+                    currentWaves.T.a *= -1; // discordant T
+                }
+            } else if (config.pathology === 'RBBB') {
+                currentWaves.R.s = 0.03;
+                currentWaves.S.s = 0.04;
+                if (['V1','V2'].includes(config.lead)) {
+                    currentWaves.R.m = 0.38; // rSR' approximation
+                }
+            }
+
+            // Calculate Sum of Gaussians
+            if (!['VTACH', 'VFIB'].includes(config.rhythm)) {
+                for (let wave in currentWaves) {
+                    let w = currentWaves[wave];
+                    let a = w.a * leadMod[wave];
+                    if (wave === 'T') a *= tWaveInversion;
+                    
+                    y += a * Math.exp(-Math.pow(normalizedTime - w.m, 2) / (2 * Math.pow(w.s, 2)));
+                }
+
+                // Apply ST segment shift (Gaussian between S and T)
+                if (stElevation !== 0) {
+                    let stCenter = 0.45;
+                    let stWidth = 0.05;
+                    y += stElevation * Math.exp(-Math.pow(normalizedTime - stCenter, 2) / (2 * Math.pow(stWidth, 2)));
+                }
+            }
+
+            // Baseline wander
+            y += Math.sin(normalizedTime * Math.PI) * 0.02;
+
+            return y;
+        }
+
+        // --- Canvas Setup & Drawing ---
+        function resizeCanvas() {
+            const parent = canvas.parentElement;
+            canvas.width = parent.clientWidth;
+            canvas.height = parent.clientHeight;
+            points = new Array(Math.floor(canvas.width)).fill(null);
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function drawGrid() {
+            // Dark pink/red background
+            ctx.fillStyle = '#1a0505'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.lineWidth = 0.5;
+            const gridSize = 12; // roughly 1mm
+            const majorGridSize = gridSize * 5; // 5mm
+
+            // Small squares (faint red)
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.1)'; 
+            for (let x = 0; x <= canvas.width; x += gridSize) {
+                ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
+            }
+            for (let y = 0; y <= canvas.height; y += gridSize) {
+                ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+            }
+            ctx.stroke();
+
+            // Large squares (more visible red)
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.25)';
+            for (let x = 0; x <= canvas.width; x += majorGridSize) {
+                ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height);
+            }
+            for (let y = 0; y <= canvas.height; y += majorGridSize) {
+                ctx.moveTo(0, y); ctx.lineTo(canvas.width, y);
+            }
+            ctx.stroke();
+            
+            // Baseline
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+            ctx.moveTo(0, canvas.height / 2);
+            ctx.lineTo(canvas.width, canvas.height / 2);
+            ctx.stroke();
+        }
+
+        let currentX = 0;
+        let cycleMultiplier = 1.0; // For AFib R-R variation
+
+        function draw() {
+            if (!isRunning) return;
+
+            const cyclePerSecond = config.bpm / 60;
+            time += (16.666 / 1000) * cyclePerSecond * cycleMultiplier; 
+            
+            if (time >= 1.0) {
+                time = time % 1.0;
+                // If AFib, randomize the next R-R interval slightly
+                if (config.rhythm === 'AFIB') {
+                    cycleMultiplier = 0.7 + Math.random() * 0.6; // varies interval lengths
+                } else {
+                    cycleMultiplier = 1.0;
+                }
+            }
+
+            let ecgBase = getEcgValue(time);
+            
+            // Apply high frequency noise
+            let noiseVal = (Math.random() - 0.5) * config.noise;
+            let finalValue = (ecgBase + noiseVal);
+
+            // Scale to canvas (approx 1mV = 2 large squares = 10 small squares)
+            const scaleY = canvas.height * 0.25; 
+            const y = (canvas.height / 2) - (finalValue * scaleY);
+
+            for(let i=0; i<config.speed; i++){
+                points[currentX] = y;
+                currentX++;
+                if (currentX >= canvas.width) currentX = 0;
+            }
+
+            drawGrid();
+
+            // Draw Trace (Bright green/cyan for monitor effect)
+            ctx.beginPath();
+            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = '#10b981'; // Emerald 500
+            ctx.lineJoin = 'round';
+
+            let isFirst = true;
+            for (let x = 0; x < canvas.width; x++) {
+                if (x > currentX && x < currentX + gap) {
+                    isFirst = true;
+                    continue;
+                }
+                const ptY = points[x];
+                if (ptY === null || ptY === undefined) continue;
+
+                if (isFirst) {
+                    ctx.moveTo(x, ptY);
+                    isFirst = false;
+                } else {
+                    ctx.lineTo(x, ptY);
+                }
+            }
+            ctx.stroke();
+
+            // Leading dot
+            if(points[currentX - 1] !== undefined) {
+                ctx.beginPath();
+                ctx.arc(currentX - 1, points[currentX - 1], 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+            }
+
+            animationId = requestAnimationFrame(draw);
+        }
+
+        // --- Event Listeners ---
+        function updateConfig() {
+            config.bpm = parseInt(bpmSlider.value);
+            config.noise = parseInt(noiseSlider.value) / 100;
+            config.lead = leadSelect.value;
+            config.rhythm = rhythmSelect.value;
+            config.pathology = pathologySelect.value;
+
+            // Auto-adjust BPM for certain rhythms if user hasn't forced it
+            if (config.rhythm === 'VTACH' && config.bpm < 150) { bpmSlider.value = 160; config.bpm = 160; }
+            if (config.rhythm === 'SVT' && config.bpm < 140) { bpmSlider.value = 170; config.bpm = 170; }
+            if (config.rhythm === 'NSR' && config.bpm > 100) { bpmSlider.value = 75; config.bpm = 75; }
+
+            bpmVal.textContent = config.bpm;
+            bpmDisplay.textContent = config.bpm;
+            noiseVal.textContent = Math.round(config.noise * 100) + '%';
+            leadDisplay.textContent = 'LEAD ' + config.lead;
+        }
+
+        bpmSlider.addEventListener('input', updateConfig);
+        noiseSlider.addEventListener('input', updateConfig);
+        leadSelect.addEventListener('change', updateConfig);
+        rhythmSelect.addEventListener('change', updateConfig);
+        pathologySelect.addEventListener('change', updateConfig);
+
+        const toggleBtn = document.getElementById('toggleBtn');
+        const playIcon = document.getElementById('playIcon');
+        const pauseIcon = document.getElementById('pauseIcon');
+
+        toggleBtn.addEventListener('click', () => {
+            isRunning = !isRunning;
+            if (isRunning) {
+                playIcon.classList.replace('block', 'hidden');
+                pauseIcon.classList.replace('hidden', 'block');
+                draw();
+            } else {
+                pauseIcon.classList.replace('block', 'hidden');
+                playIcon.classList.replace('hidden', 'block');
+                cancelAnimationFrame(animationId);
+            }
+        });
+
+        function showCustomAlert(msg) {
+            alertMessage.textContent = msg;
+            alertBox.classList.remove('hidden');
+            setTimeout(() => { alertBox.classList.add('hidden'); }, 4000);
+        }
+
+        // --- AI Integration (Gemini API) ---
+        const imageUpload = document.getElementById('imageUpload');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const aiResult = document.getElementById('aiResult');
+        let uploadedBase64 = null;
+        let uploadedMimeType = null;
+
+        imageUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                fileNameDisplay.textContent = file.name;
+                fileNameDisplay.classList.add('text-emerald-400');
+                
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64String = reader.result;
+                    // format: data:image/png;base64,...
+                    uploadedMimeType = base64String.split(';')[0].split(':')[1];
+                    uploadedBase64 = base64String.split(',')[1];
+                };
+                reader.readAsDataURL(file);
+            } else {
+                fileNameDisplay.textContent = "PNG, JPG desteklenir.";
+                fileNameDisplay.classList.remove('text-emerald-400');
+                uploadedBase64 = null;
+                uploadedMimeType = null;
+            }
+        });
+
+        analyzeBtn.addEventListener('click', async () => {
+            loadingOverlay.classList.remove('hidden');
+            aiResult.textContent = "";
+
+            try {
+                // Construct System Prompt
+                const systemInstruction = "Sen uzman bir kardiyologsun. Sana verilen EKG verisini (görsel veya metin simülasyonu) analiz edip yapılandırılmış, profesyonel bir tıbbi rapor oluştur. Rapor şu başlıkları içermeli: 1. Hız (Rate), 2. Ritim (Rhythm), 3. Aks (Axis), 4. İntervaller (PR, QRS, QT), 5. ST-T Değişiklikleri, 6. İzlenim/Sonuç (Impression). Formatı temiz ve okunabilir yap. Sonuna bunun eğitim amaçlı bir yapay zeka aracı olduğuna dair kısa bir not ekle.";
+                
+                // Construct User Payload
+                let contents = [];
+                
+                if (uploadedBase64) {
+                    // Analyze Uploaded Image
+                    contents.push({
+                        role: "user",
+                        parts: [
+                            { text: "Lütfen ekteki EKG görselini analiz et ve kardiyolog raporunu oluştur." },
+                            {
+                                inlineData: {
+                                    mimeType: uploadedMimeType,
+                                    data: uploadedBase64
+                                }
+                            }
+                        ]
+                    });
+                } else {
+                    // Analyze Simulated Context
+                    const rhythmText = rhythmSelect.options[rhythmSelect.selectedIndex].text;
+                    const pathText = pathologySelect.options[pathologySelect.selectedIndex].text;
+                    const simContext = `Şu an ekranda bir EKG simülasyonu çalışıyor. Görüntü yüklenmediği için simülasyon parametrelerine göre rapor oluştur. Parametreler:\n- Derivasyon: ${config.lead}\n- Ritim: ${rhythmText}\n- Patoloji/Bulgu: ${pathText}\n- Kalp Hızı: ${config.bpm} BPM.\nLütfen bu klinik senaryoya uygun yapılandırılmış EKG raporunu oluştur.`;
+                    
+                    contents.push({
+                        role: "user",
+                        parts: [{ text: simContext }]
+                    });
+                }
+
+                const payload = {
+                    contents: contents,
+                    systemInstruction: {
+                        parts: [{ text: systemInstruction }]
+                    }
+                };
+
+                // Fetch Call to Gemini API (Uses gemini-3-flash-preview for text & images)
+                const apiKey = ""; // Left empty as per environment rules
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result.candidates && result.candidates[0].content.parts[0].text) {
+                    // Render markdown-like text nicely (simple replace for bold)
+                    let formattedText = result.candidates[0].content.parts[0].text;
+                    formattedText = formattedText.replace(/\*\*(.*?)\*\*/g, '<strong class="text-emerald-400">$1</strong>');
+                    formattedText = formattedText.replace(/\*(.*?)\*/g, '<em class="text-emerald-200">$1</em>');
+                    
+                    aiResult.innerHTML = formattedText;
+                } else {
+                    aiResult.innerHTML = "<span class='text-red-400'>Analiz oluşturulamadı. API yanıtı geçersiz. Lütfen tekrar deneyin.</span>";
+                    console.error(result);
+                }
+
+            } catch (error) {
+                console.error("AI Error:", error);
+                showCustomAlert("Bağlantı hatası! Yapay zeka servisine ulaşılamadı.");
+                aiResult.innerHTML = "<span class='text-red-400'>Bir ağ hatası oluştu.</span>";
+            } finally {
+                loadingOverlay.classList.add('hidden');
+            }
+        });
+
+        // Initialize
+        window.onload = () => {
+            updateConfig(); // Sync initial values
+            draw();
+        };
+    </script>
+</body>
+</html>
