@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Klinik EKG & Algoritmik Analiz</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: system-ui, sans-serif; overscroll-behavior: none; margin:0; padding:0; height: 100vh; display: flex; flex-direction: column;}
+        .ecg-grid { 
+            background-color: #1a0505; 
+            background-image: 
+                linear-gradient(rgba(239, 68, 68, 0.3) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(239, 68, 68, 0.3) 1px, transparent 1px),
+                linear-gradient(rgba(239, 68, 68, 0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(239, 68, 68, 0.1) 1px, transparent 1px);
+            background-size: 25px 25px, 25px 25px, 5px 5px, 5px 5px;
+        }
+        canvas { width: 100%; height: 100%; display: block; }
+        .glass { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(8px); border-bottom: 1px solid rgba(255,255,255,0.1); }
+        .canvas-container { position: relative; border: 1px solid #334155; overflow: hidden; }
+        .lead-label { position: absolute; top: 4px; left: 4px; background: rgba(0,0,0,0.6); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; z-index: 10;}
+        
+        #grid-12-lead { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(3, 1fr); gap: 2px; background: #334155; height: 100%; flex-grow: 1;}
+        #single-lead { display: none; height: 100%; flex-grow: 1; flex-direction: column; }
+        
+        @media (max-width: 768px) {
+            #grid-12-lead { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(6, 1fr); }
+        }
+
+        .tab-btn { padding: 0.5rem 1rem; cursor: pointer; border-bottom: 2px solid transparent; font-weight: 600; color: #94a3b8; transition: all 0.2s;}
+        .tab-btn.active { color: #f87171; border-bottom-color: #f87171; }
+        .tab-content { display: none; flex-grow: 1; overflow: hidden; flex-direction: column; }
+        .tab-content.active { display: flex; }
+
+        /* Yeni Upload Zone */
+        .upload-zone {
+            border: 2px dashed #475569; border-radius: 0.75rem; padding: 2.5rem 1rem;
+            text-align: center; cursor: pointer; transition: all 0.3s ease;
+            background: rgba(30, 41, 59, 0.5);
+        }
+        .upload-zone:hover, .upload-zone.dragover { border-color: #10b981; background: rgba(16, 185, 129, 0.1); }
+        
+        /* Yeni Lazer Animasyonu (Aşağı - Yukarı - Aşağı) */
+        .scanner-line {
+            position: absolute; left: 0; width: 100%; height: 3px;
+            background: #10b981;
+            box-shadow: 0 0 20px 8px rgba(16,185,129,0.4);
+            display: none;
+            /* alternate: aşağı indikten sonra aynı hızla yukarı çıkar */
+            animation: scan 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes scan { 
+            0% { top: 0%; } 
+            100% { top: calc(100% - 3px); } 
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Üst Kontrol Paneli & Sekmeler -->
+    <div class="glass flex flex-col shrink-0 shadow-lg z-20">
+        <div class="flex justify-between items-center p-3 border-b border-slate-700">
+            <h1 class="text-lg font-bold text-red-400">Klinik EKG <span class="text-slate-400 text-xs font-normal">Medikal Motor</span></h1>
+            <div class="flex gap-4 text-sm">
+                <div id="tabSim" class="tab-btn active" onclick="switchTab('sim')">EKG Simülatörü</div>
+                <div id="tabAnaliz" class="tab-btn" onclick="switchTab('analiz')">Görsel Analiz (Algoritmik)</div>
+            </div>
+        </div>
+        
+        <!-- Simülatör Kontrolleri -->
+        <div id="simControls" class="flex flex-wrap gap-3 items-center p-3 text-sm">
+            <div class="flex flex-col">
+                <label class="text-xs text-slate-400">Görünüm</label>
+                <select id="viewMode" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 outline-none focus:border-red-400">
+                    <option value="12">12 Derivasyon (Grid)</option>
+                    <option value="1">Tek Derivasyon (Detay)</option>
+                </select>
+            </div>
+            
+            <div class="flex flex-col" id="singleLeadSelector" style="display:none;">
+                <label class="text-xs text-slate-400">Derivasyon Seç</label>
+                <select id="activeLead" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 outline-none">
+                    <option value="I">I</option><option value="II" selected>II</option><option value="III">III</option>
+                    <option value="aVR">aVR</option><option value="aVL">aVL</option><option value="aVF">aVF</option>
+                    <option value="V1">V1</option><option value="V2">V2</option><option value="V3">V3</option>
+                    <option value="V4">V4</option><option value="V5">V5</option><option value="V6">V6</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col">
+                <label class="text-xs text-slate-400">Ritim / Patoloji</label>
+                <select id="pathology" class="bg-slate-800 border border-slate-600 rounded px-2 py-1 outline-none text-red-300 font-semibold">
+                    <option value="NSR">Normal Sinüs Ritmi</option>
+                    <option value="ANT_STEMI">Anterior STEMI (V1-V4)</option>
+                    <option value="INF_STEMI">İnferior STEMI (II, III, aVF)</option>
+                    <option value="LBBB">Sol Dal Bloğu (LBBB)</option>
+                    <option value="RBBB">Sağ Dal Bloğu (RBBB)</option>
+                    <option value="AFIB">Atriyal Fibrilasyon (AFib)</option>
+                    <option value="PVC">Sık VES / PVC</option>
+                </select>
+            </div>
+
+            <div class="flex flex-col w-24">
+                <label class="text-xs text-slate-400 flex justify-between">Hız <span id="bpmVal">75</span></label>
+                <input type="range" id="bpmSlider" min="40" max="180" value="75" class="accent-red-500">
+            </div>
+        </div>
+    </div>
+
+    <!-- SEKME 1: Simülatör -->
+    <div id="contentSim" class="tab-content active p-1 bg-slate-900">
+        <div id="grid-12-lead" class="w-full"></div>
+        <div id="single-lead" class="w-full ecg-grid canvas-container rounded">
+            <span id="singleLeadLabel" class="lead-label text-lg">II</span>
+            <canvas id="singleCanvas"></canvas>
+        </div>
+    </div>
+
+    <!-- SEKME 2: Görüntü Analizi (Kural Tabanlı) -->
+    <div id="contentAnaliz" class="tab-content p-4 bg-slate-900 overflow-y-auto">
+        <div class="max-w-4xl mx-auto w-full flex flex-col gap-6 pb-10">
+            
+            <div class="bg-slate-800 p-5 rounded-xl border border-slate-700">
+                <div class="flex justify-between items-start mb-2">
+                    <h2 class="text-emerald-400 font-bold">Medikal Görüntü Analizi</h2>
+                </div>
+                <p class="text-xs text-slate-400 mb-4">Gerçek bir EKG fotoğrafı yükleyin. Sistem, klinik karar ağacı algoritmaları ve görsel inceleme yardımıyla patolojiyi saptar.</p>
+                
+                <!-- Gizli asıl input -->
+                <input type="file" id="uploadEcg" accept="image/*" class="hidden">
+                
+                <!-- Kolay Seçim Alanı -->
+                <div id="dropZone" class="upload-zone" onclick="document.getElementById('uploadEcg').click()">
+                    <svg class="mx-auto h-12 w-12 text-emerald-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    <p class="text-slate-200 font-semibold text-sm">Görsel Yüklemek İçin Dokunun</p>
+                    <p class="text-xs text-slate-400 mt-1">veya resmi buraya sürükleyip bırakın</p>
+                </div>
+                
+                <!-- Resim Önizleme (Başlangıçta Gizli) -->
+                <div id="imagePreviewContainer" class="relative w-full h-72 bg-slate-900 border border-slate-600 rounded-lg overflow-hidden hidden mt-4">
+                    <img id="ecgImagePreview" class="absolute inset-0 w-full h-full object-contain" />
+                    <!-- Lazer Tarayıcı -->
+                    <div id="scannerLine" class="scanner-line"></div>
+                </div>
+                
+                <!-- Buton Grubu -->
+                <div class="flex gap-3 mt-4">
+                    <button id="startScanBtn" class="flex-grow bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-lg transition-colors hidden shadow-lg">
+                        Piksel Taramasını Başlat
+                    </button>
+                    <!-- YENİ: Geri / Temizle Butonu -->
+                    <button id="resetScanBtn" class="bg-slate-700 hover:bg-red-500 text-white px-5 py-3 rounded-lg transition-colors hidden shadow-lg border border-slate-600 hover:border-red-400" title="Yeni Görsel Seç">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Algoritmik Karar Ağacı -->
+            <div id="decisionTree" class="bg-slate-800 p-5 rounded-xl border border-slate-700 hidden">
+                <h3 class="text-white font-bold mb-4 border-b border-slate-700 pb-2">Klinik Karar Ağacı Doğrulaması</h3>
+                <p class="text-xs text-slate-400 mb-4">Görüntü taraması tamamlandı. Kesin tanı için bulguları doğrulayın:</p>
+                
+                <div class="flex flex-col gap-3">
+                    <label class="flex items-center gap-3 cursor-pointer p-3 bg-slate-900/50 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
+                        <input type="checkbox" id="chkRegular" checked class="w-5 h-5 accent-emerald-500 rounded">
+                        <span class="text-sm font-medium">R-R aralığı düzenli (Aritmi yok)</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer p-3 bg-slate-900/50 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
+                        <input type="checkbox" id="chkQRS" class="w-5 h-5 accent-emerald-500 rounded">
+                        <span class="text-sm font-medium">QRS Süresi Geniş (>120ms / 3 küçük kare)</span>
+                    </label>
+                    <label class="flex items-center gap-3 cursor-pointer p-3 bg-slate-900/50 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
+                        <input type="checkbox" id="chkST" class="w-5 h-5 accent-emerald-500 rounded">
+                        <span class="text-sm font-medium">V1-V4 veya II-III-aVF'de ST Elevasyonu mevcut</span>
+                    </label>
+                </div>
+
+                <button id="calcDiagBtn" class="mt-5 w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-colors shadow-lg">
+                    Algoritmik Tanıyı Hesapla
+                </button>
+            </div>
+
+            <!-- Sonuç Alanı -->
+            <div id="finalDiagnosis" class="bg-slate-800 p-5 rounded-xl border border-emerald-500 hidden shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                <h3 class="text-emerald-400 font-bold mb-3 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" /></svg>
+                    Kesin Analiz Sonucu
+                </h3>
+                <div id="diagResultText" class="text-sm text-slate-200 leading-relaxed bg-slate-900 p-4 rounded-lg"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            if(tab === 'sim') {
+                document.getElementById('tabSim').classList.add('active');
+                document.getElementById('contentSim').classList.add('active');
+                document.getElementById('simControls').style.display = 'flex';
+                setTimeout(resizeCanvases, 50); 
+            } else {
+                document.getElementById('tabAnaliz').classList.add('active');
+                document.getElementById('contentAnaliz').classList.add('active');
+                document.getElementById('simControls').style.display = 'none';
+            }
+        }
+
+        // --- GÖRÜNTÜ ANALİZİ (UZMAN SİSTEM) ---
+        const uploadEcg = document.getElementById('uploadEcg');
+        const dropZone = document.getElementById('dropZone');
+        const imgPreviewContainer = document.getElementById('imagePreviewContainer');
+        const imgPreview = document.getElementById('ecgImagePreview');
+        
+        const scanBtn = document.getElementById('startScanBtn');
+        const resetScanBtn = document.getElementById('resetScanBtn');
+        const scannerLine = document.getElementById('scannerLine');
+        
+        const decisionTree = document.getElementById('decisionTree');
+        const calcDiagBtn = document.getElementById('calcDiagBtn');
+        const finalDiagnosis = document.getElementById('finalDiagnosis');
+        const diagResultText = document.getElementById('diagResultText');
+
+        // Dosya Sürükle Bırak Olayları
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+        dropZone.addEventListener('dragleave', () => { dropZone.classList.remove('dragover'); });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) {
+                uploadEcg.files = e.dataTransfer.files;
+                handleFileUpload(e.dataTransfer.files[0]);
+            }
+        });
+
+        uploadEcg.addEventListener('change', (e) => {
+            if(e.target.files[0]) handleFileUpload(e.target.files[0]);
+        });
+
+        function handleFileUpload(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                imgPreview.src = e.target.result;
+                
+                // Görseli göster, dropzone'u gizle
+                dropZone.classList.add('hidden');
+                imgPreviewContainer.classList.remove('hidden');
+                
+                // Butonları ayarla
+                scanBtn.classList.remove('hidden');
+                resetScanBtn.classList.remove('hidden');
+                scanBtn.disabled = false;
+                scanBtn.innerText = "Piksel Taramasını Başlat";
+                
+                // Eski sonuçları gizle
+                decisionTree.classList.add('hidden');
+                finalDiagnosis.classList.add('hidden');
+            }
+            reader.readAsDataURL(file);
+        }
+
+        // Yeni "Geri/İptal" Butonu
+        resetScanBtn.addEventListener('click', () => {
+            uploadEcg.value = ''; // Input'u temizle
+            imgPreview.src = '';
+            
+            imgPreviewContainer.classList.add('hidden');
+            dropZone.classList.remove('hidden');
+            
+            scanBtn.classList.add('hidden');
+            resetScanBtn.classList.add('hidden');
+            decisionTree.classList.add('hidden');
+            finalDiagnosis.classList.add('hidden');
+            scannerLine.style.display = 'none';
+        });
+
+        scanBtn.addEventListener('click', () => {
+            scannerLine.style.display = 'block';
+            scanBtn.disabled = true;
+            scanBtn.innerText = "Görüntü İşleniyor...";
+            
+            setTimeout(() => {
+                scannerLine.style.display = 'none';
+                scanBtn.innerText = "Tarama Tamamlandı";
+                decisionTree.classList.remove('hidden');
+                
+                // Scroll ile aşağı kaydır (Kullanıcıya kolaylık)
+                decisionTree.scrollIntoView({ behavior: "smooth", block: "center" });
+            }, 3000);
+        });
+
+        calcDiagBtn.addEventListener('click', () => {
+            const isRegular = document.getElementById('chkRegular').checked;
+            const isWideQRS = document.getElementById('chkQRS').checked;
+            const hasSTElevation = document.getElementById('chkST').checked;
+
+            let diagTitle = ""; let diagDesc = ""; let severity = "";
+
+            if (hasSTElevation) {
+                diagTitle = "STEMI (Akut Miyokard Enfarktüsü)";
+                diagDesc = "Belirtilen derivasyonlardaki ST elevasyonu, akut koroner sendrom göstergesidir. Resiprokal ST çökmeleri açısından diğer derivasyonlar incelenmelidir.";
+                severity = "<span class='text-red-500 font-bold'>KRİTİK ACİL</span>";
+            } 
+            else if (!isRegular && !isWideQRS) {
+                diagTitle = "Atriyal Fibrilasyon (AFib) / Aritmi";
+                diagDesc = "R-R aralıklarının düzensiz olması ve dar QRS kompleksi atriyal kaynaklı bir ritim bozukluğunu işaret eder.";
+                severity = "<span class='text-orange-400 font-bold'>ANORMAL (Dikkat)</span>";
+            }
+            else if (isWideQRS) {
+                diagTitle = "Dal Bloğu Şüphesi veya Ventriküler Ritim";
+                diagDesc = "QRS süresinin 120ms üzerinde olması elektriksel iletimin geciktiğini gösterir. (LBBB / RBBB)";
+                severity = "<span class='text-yellow-400 font-bold'>KLİNİK KORELASYON</span>";
+            }
+            else if (isRegular && !isWideQRS && !hasSTElevation) {
+                diagTitle = "Normal Sinüs Ritmi";
+                diagDesc = "Algoritmik bulgular çerçevesinde majör bir patoloji saptanmadı.";
+                severity = "<span class='text-emerald-400 font-bold'>NORMAL</span>";
+            }
+
+            diagResultText.innerHTML = `
+                <div class="mb-2 text-lg font-bold text-white">${diagTitle}</div>
+                <div class="mb-3">Durum: ${severity}</div>
+                <div class="text-slate-300 mb-3">${diagDesc}</div>
+                <div class="text-xs text-slate-500 border-t border-slate-700 pt-2 flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                    Kural Tabanlı Algoritma (No-AI)
+                </div>
+            `;
+            finalDiagnosis.classList.remove('hidden');
+            finalDiagnosis.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+
+
+        // --- SİMÜLATÖR MOTORU ---
+        const leads = ['I', 'II', 'III', 'aVR', 'aVL', 'aVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6'];
+        const viewMode = document.getElementById('viewMode');
+        const singleLeadSelector = document.getElementById('singleLeadSelector');
+        const gridView = document.getElementById('grid-12-lead');
+        const singleView = document.getElementById('single-lead');
+        const activeLeadSelect = document.getElementById('activeLead');
+        const singleLeadLabel = document.getElementById('singleLeadLabel');
+        const pathSelect = document.getElementById('pathology');
+        const bpmSlider = document.getElementById('bpmSlider');
+        const bpmVal = document.getElementById('bpmVal');
+
+        let config = { view: '12', lead: 'II', path: 'NSR', bpm: 75 };
+        let isRunning = true; let time = 0; let cycleMultiplier = 1.0; let beatCount = 0; 
+        const sweepSpeed = 2; const canvasData = {}; 
+
+        const baseWaves = {
+            P: { a: 0.15, m: -0.15, s: 0.02 }, Q: { a: -0.15, m: -0.04, s: 0.01 },
+            R: { a: 1.20, m: 0.00, s: 0.015 }, S: { a: -0.30, m: 0.04, s: 0.015 },
+            T: { a: 0.35, m: 0.25, s: 0.04 }
+        };
+
+        const leadVectors = {
+            'I':   { P: 0.8, Q: 0.5, R: 0.8, S: 1.0, T: 0.8 }, 'II':  { P: 1.0, Q: 1.0, R: 1.0, S: 1.0, T: 1.0 },
+            'III': { P: 0.6, Q: 1.5, R: 0.5, S: 1.2, T: 0.5 }, 'aVR': { P:-1.0, Q:-1.0, R:-0.8, S:-1.0, T:-1.0 },
+            'aVL': { P: 0.4, Q: 0.8, R: 0.6, S: 0.8, T: 0.3 }, 'aVF': { P: 0.8, Q: 1.2, R: 0.9, S: 1.1, T: 0.8 },
+            'V1':  { P: 0.5, Q: 0.1, R: 0.2, S: 2.5, T: -0.3 }, 'V2':  { P: 0.6, Q: 0.1, R: 0.4, S: 2.0, T: 0.8 },
+            'V3':  { P: 0.8, Q: 0.2, R: 1.0, S: 1.0, T: 1.2 }, 'V4':  { P: 1.0, Q: 0.5, R: 1.5, S: 0.5, T: 1.0 },
+            'V5':  { P: 1.0, Q: 0.8, R: 1.2, S: 0.2, T: 0.8 }, 'V6':  { P: 0.9, Q: 1.0, R: 1.0, S: 0.1, T: 0.7 }
+        };
+
+        function calculateVoltage(t_norm, lead, path) {
+            let v = 0; let waves = JSON.parse(JSON.stringify(baseWaves));
+            let vec = leadVectors[lead]; let stShift = 0; let isPVC = false;
+            if (path === 'PVC' && beatCount % 4 === 0) isPVC = true; 
+
+            if (isPVC) { waves.P.a = 0; waves.R.s = 0.06; waves.S.s = 0.06; waves.T.a *= -1; waves.R.a *= 1.5; } 
+            else if (path === 'AFIB') { waves.P.a = 0; v += Math.sin(t_norm * Math.PI * 50) * 0.05; } 
+            else if (path === 'ANT_STEMI') { if (['V1','V2','V3','V4'].includes(lead)) { stShift = 0.6; waves.T.a = 1.2; } else if (['II','III','aVF'].includes(lead)) { stShift = -0.2; } } 
+            else if (path === 'INF_STEMI') { if (['II','III','aVF'].includes(lead)) { stShift = 0.6; } else if (['I','aVL'].includes(lead)) { stShift = -0.3; } }
+            else if (path === 'LBBB') { waves.R.s = 0.04; waves.S.s = 0.04; if (['V5','V6','I','aVL'].includes(lead)) { waves.R.m = 0.03; waves.T.a *= -1.5; } }
+            else if (path === 'RBBB') { waves.R.s = 0.03; waves.S.s = 0.04; if (['V1','V2'].includes(lead)) { waves.R.m = 0.04; waves.R.a = 1.5; } }
+
+            for (let w in waves) { v += (waves[w].a * vec[w]) * Math.exp(-Math.pow(t_norm - waves[w].m, 2) / (2 * Math.pow(waves[w].s, 2))); }
+            if (stShift !== 0) v += stShift * Math.exp(-Math.pow(t_norm - 0.12, 2) / (2 * Math.pow(0.04, 2)));
+            v += Math.sin(t_norm * Math.PI) * 0.02; v += (Math.random() - 0.5) * 0.03; return v;
+        }
+
+        function initGrid() {
+            gridView.innerHTML = '';
+            leads.forEach(lead => {
+                let div = document.createElement('div'); div.className = 'ecg-grid canvas-container';
+                div.innerHTML = `<span class="lead-label">${lead}</span><canvas id="c_${lead}"></canvas>`;
+                gridView.appendChild(div);
+                canvasData[lead] = { canvas: document.getElementById(`c_${lead}`), ctx: document.getElementById(`c_${lead}`).getContext('2d'), points: [], x: 0 };
+            });
+            let sCanvas = document.getElementById('singleCanvas');
+            canvasData['SINGLE'] = { canvas: sCanvas, ctx: sCanvas.getContext('2d'), points: [], x: 0 };
+            resizeCanvases();
+        }
+
+        function resizeCanvases() {
+            if(document.getElementById('contentSim').classList.contains('active')){
+                leads.forEach(lead => {
+                    let c = canvasData[lead].canvas;
+                    c.width = c.parentElement.clientWidth; c.height = c.parentElement.clientHeight;
+                    canvasData[lead].points = new Array(c.width).fill(null); canvasData[lead].x = 0;
+                });
+                let sc = canvasData['SINGLE'].canvas;
+                sc.width = sc.parentElement.clientWidth; sc.height = sc.parentElement.clientHeight;
+                canvasData['SINGLE'].points = new Array(sc.width).fill(null); canvasData['SINGLE'].x = 0;
+            }
+        }
+        window.addEventListener('resize', () => setTimeout(resizeCanvases, 50));
+
+        function drawLine(dataObj) {
+            let ctx = dataObj.ctx; let canvas = dataObj.canvas; let xPos = dataObj.x; let pts = dataObj.points;
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            ctx.beginPath(); ctx.lineWidth = 2.0; ctx.strokeStyle = '#10b981'; ctx.lineJoin = 'round';
+            let isFirst = true;
+            for (let i = 0; i < canvas.width; i++) {
+                if (i > xPos && i < xPos + 15) { isFirst = true; continue; }
+                if (pts[i] === null) continue;
+                if (isFirst) { ctx.moveTo(i, pts[i]); isFirst = false; } else { ctx.lineTo(i, pts[i]); }
+            }
+            ctx.stroke();
+            if (pts[xPos-1] !== undefined && pts[xPos-1] !== null) {
+                ctx.beginPath(); ctx.arc(xPos-1, pts[xPos-1], 2, 0, Math.PI*2); ctx.fillStyle = '#ffffff'; ctx.fill();
+            }
+        }
+
+        function animate() {
+            if (!isRunning) return;
+            time += (16.666 / 1000) * (config.bpm / 60) * cycleMultiplier;
+            if (time >= 1.0) { time = time % 1.0; beatCount++; cycleMultiplier = (config.path === 'AFIB') ? 0.6 + (Math.random() * 0.8) : 1.0; }
+            let t_norm = time - 0.5;
+
+            if (config.view === '12' && document.getElementById('grid-12-lead').style.display !== 'none') {
+                leads.forEach(lead => {
+                    let d = canvasData[lead];
+                    if(d.canvas.width > 0) {
+                        let y = (d.canvas.height / 2) - (calculateVoltage(t_norm, lead, config.path) * (d.canvas.height * 0.25));
+                        for(let s=0; s<sweepSpeed; s++) { d.points[d.x] = y; d.x++; if (d.x >= d.canvas.width) d.x = 0; } drawLine(d);
+                    }
+                });
+            } else if (config.view === '1' && document.getElementById('single-lead').style.display !== 'none') {
+                let d = canvasData['SINGLE'];
+                if(d.canvas.width > 0) {
+                    let y = (d.canvas.height / 2) - (calculateVoltage(t_norm, config.lead, config.path) * (d.canvas.height * 0.25));
+                    for(let s=0; s<sweepSpeed; s++) { d.points[d.x] = y; d.x++; if (d.x >= d.canvas.width) d.x = 0; } drawLine(d);
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
+        viewMode.addEventListener('change', (e) => {
+            config.view = e.target.value;
+            if(config.view === '12') { gridView.style.display = 'grid'; singleView.style.display = 'none'; singleLeadSelector.style.display = 'none'; } 
+            else { gridView.style.display = 'none'; singleView.style.display = 'flex'; singleLeadSelector.style.display = 'flex'; }
+            setTimeout(resizeCanvases, 50);
+        });
+        activeLeadSelect.addEventListener('change', (e) => { config.lead = e.target.value; singleLeadLabel.innerText = config.lead; });
+        pathSelect.addEventListener('change', (e) => { config.path = e.target.value; });
+        bpmSlider.addEventListener('input', (e) => { config.bpm = parseInt(e.target.value); bpmVal.innerText = config.bpm; });
+        initGrid(); animate();
+    </script>
+</body>
+</html>
